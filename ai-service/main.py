@@ -179,6 +179,45 @@ def download_database():
         )
 
 
+@app.options("/upload-project")
+def upload_project_options():
+    """Handle preflight OPTIONS request for upload-project endpoint"""
+    return {"message": "OK"}
+
+@app.post("/upload-project")
+def upload_project_content(content: dict):
+    """
+    Upload project content to the VM database.
+    This allows local apps to push their changes to the VM.
+    """
+    try:
+        markdown_content = content.get("markdown", "")
+        
+        if not markdown_content:
+            raise HTTPException(status_code=400, detail="No markdown content provided")
+        
+        # Save the markdown to the VM database
+        save_markdown_to_database(markdown_content)
+        
+        # Update the last modified timestamp
+        update_last_modified()
+        
+        print(f"✅ Project content uploaded to VM database: {len(markdown_content)} characters")
+        
+        return {
+            "status": "success",
+            "message": "Project content uploaded successfully",
+            "content_length": len(markdown_content)
+        }
+    
+    except Exception as e:
+        print(f"❌ Failed to upload project content: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail={"error": f"Failed to upload project content: {str(e)}"}
+        )
+
+
 # Simple file to track last update time
 LAST_UPDATE_FILE = Path(__file__).parent / "last_update.txt"
 
@@ -356,33 +395,67 @@ def apply_patch_to_section(markdown: str, section_name: str, new_content: str) -
     # Extract the core content to check for duplicates
     new_content_clean = new_content.strip()
     
+    # Enhanced duplicate detection
+    print(f"Checking for duplicates in {section_name}...")
+    print(f"New content: {new_content_clean[:100]}...")
+    
     # Check if the new content already exists in the section (exact match)
     if new_content_clean in existing_content:
-        print(f"Content already exists in {section_name}, skipping duplicate")
+        print(f"Exact content already exists in {section_name}, skipping duplicate")
         return markdown
     
     # For bullet points, do more thorough duplicate checking
     if new_content_clean.startswith('* '):
-        # Extract the main part (everything after the bullet)
-        new_item = new_content_clean[2:].strip()
+        new_lines_to_add = new_content_clean.split('\n')
         
-        # Check if this item already exists (multiple ways)
-        for line in lines[section_start:section_end]:
-            if line.strip().startswith('* '):
-                existing_item = line.strip()[2:].strip()
+        for new_line in new_lines_to_add:
+            new_line_stripped = new_line.strip()
+            if not new_line_stripped.startswith('* '):
+                continue
                 
-                # Check exact match
-                if existing_item.lower() == new_item.lower():
-                    print(f"Exact duplicate '{new_item}' found in {section_name}, skipping")
-                    return markdown
-                
-                # Check name match (before parentheses or dashes)
-                new_name = new_item.split('(')[0].split('—')[0].strip()
-                existing_name = existing_item.split('(')[0].split('—')[0].strip()
-                
-                if new_name.lower() == existing_name.lower():
-                    print(f"Character name '{new_name}' already exists in {section_name}, skipping")
-                    return markdown
+            # Extract the main part (everything after the bullet)
+            new_item = new_line_stripped[2:].strip()
+            
+            # Check if this item already exists (multiple ways)
+            for line in lines[section_start:section_end]:
+                if line.strip().startswith('* '):
+                    existing_item = line.strip()[2:].strip()
+                    
+                    # Check exact match (case-insensitive)
+                    if existing_item.lower() == new_item.lower():
+                        print(f"Exact duplicate '{new_item}' found in {section_name}, skipping entire patch")
+                        return markdown
+                    
+                    # Check name match (before parentheses or dashes)
+                    new_name = new_item.split('(')[0].split('—')[0].strip()
+                    existing_name = existing_item.split('(')[0].split('—')[0].strip()
+                    
+                    if new_name.lower() == existing_name.lower() and len(new_name) > 2:
+                        print(f"Name '{new_name}' already exists in {section_name}, skipping entire patch")
+                        return markdown
+                    
+                    # Check for partial matches (80% similarity)
+                    if len(new_item) > 10 and len(existing_item) > 10:
+                        # Simple similarity check
+                        new_words = set(new_item.lower().split())
+                        existing_words = set(existing_item.lower().split())
+                        
+                        if len(new_words) > 0 and len(existing_words) > 0:
+                            similarity = len(new_words.intersection(existing_words)) / len(new_words.union(existing_words))
+                            if similarity > 0.8:
+                                print(f"Similar content found (similarity: {similarity:.2f}), skipping: '{new_item}'")
+                                return markdown
+    
+    # For multi-line content, check line by line
+    else:
+        new_lines_to_check = [line.strip() for line in new_content_clean.split('\n') if line.strip()]
+        existing_lines = [line.strip() for line in existing_content.split('\n') if line.strip()]
+        
+        # Check if any of the new lines already exist
+        for new_line in new_lines_to_check:
+            if new_line in existing_lines:
+                print(f"Line already exists in {section_name}: '{new_line}', skipping entire patch")
+                return markdown
     
     # Add the new content to the end of the section
     new_lines = lines[:section_end]  # Keep everything up to the end of this section
@@ -397,6 +470,7 @@ def apply_patch_to_section(markdown: str, section_name: str, new_content: str) -
     if section_end < len(lines):
         new_lines.extend(lines[section_end:])
     
+    print(f"Adding new content to {section_name}: {len(new_content_clean)} characters")
     return '\n'.join(new_lines)
 
 

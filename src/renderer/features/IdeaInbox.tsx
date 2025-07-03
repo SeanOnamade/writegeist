@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Lightbulb, Send, Clock, CheckCircle, XCircle, Zap } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Textarea } from '../../components/ui/textarea';
@@ -15,7 +15,11 @@ export const IdeaInbox: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submittedIdeas, setSubmittedIdeas] = useState<SubmittedIdea[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [syncStatus, setSyncStatus] = useState<string>('');
 
+  // No need to load recent ideas - we already track them in state
+
+  // Submit new idea
   const submitIdea = async () => {
     if (!ideaText.trim() || isSubmitting) return;
 
@@ -28,9 +32,9 @@ export const IdeaInbox: React.FC = () => {
 
     setSubmittedIdeas(prev => [newIdea, ...prev]);
     setIsSubmitting(true);
+    setSyncStatus('Submitting idea...');
 
     try {
-      // Submit to n8n webhook
       const response = await fetch('https://n8n-writegeist-u50080.vm.elestio.app/webhook/idea-inbox', {
         method: 'POST',
         headers: {
@@ -38,12 +42,11 @@ export const IdeaInbox: React.FC = () => {
         },
         body: JSON.stringify({
           idea: ideaText.trim(),
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         }),
       });
 
       if (response.ok) {
-        // Update status to processing
         setSubmittedIdeas(prev => 
           prev.map(idea => 
             idea.id === newIdea.id 
@@ -52,54 +55,18 @@ export const IdeaInbox: React.FC = () => {
           )
         );
 
-        // Simulate processing time, then mark as completed
-        setTimeout(async () => {
-          try {
-            // Mark as processing while we wait for completion
-            setSubmittedIdeas(prev => 
-              prev.map(idea => 
-                idea.id === newIdea.id 
-                  ? { ...idea, status: 'processing' }
-                  : idea
-              )
-            );
-
-            // n8n now updates the database directly through the API
-            // No need to sync from VM anymore - just mark as completed
-            console.log('Idea processed by n8n and updated in database directly');
-            
-            // Mark as completed after a brief delay
-            setTimeout(() => {
-              setSubmittedIdeas(prev => 
-                prev.map(idea => 
-                  idea.id === newIdea.id 
-                    ? { ...idea, status: 'completed' }
-                    : idea
-                )
-              );
-            }, 1000);
-            
-          } catch (error) {
-            console.error('Error during post-processing:', error);
-            
-            // Mark as error if something went wrong
-            setSubmittedIdeas(prev => 
-              prev.map(idea => 
-                idea.id === newIdea.id 
-                  ? { ...idea, status: 'error' }
-                  : idea
-              )
-            );
-          }
-        }, 5000); // Give it 5 seconds for the n8n workflow to complete
-
+        setSyncStatus('Idea submitted successfully! Processing...');
+        setTimeout(() => setSyncStatus(''), 3000);
+        
+        // Clear the input field
         setIdeaText('');
         textareaRef.current?.focus();
       } else {
-        throw new Error('Failed to submit idea');
+        setSyncStatus('Failed to submit idea. Please try again.');
+        setTimeout(() => setSyncStatus(''), 3000);
       }
     } catch (error) {
-      console.error('Error submitting idea:', error);
+      console.error('Failed to submit idea:', error);
       setSubmittedIdeas(prev => 
         prev.map(idea => 
           idea.id === newIdea.id 
@@ -107,10 +74,46 @@ export const IdeaInbox: React.FC = () => {
             : idea
         )
       );
+      setSyncStatus('Failed to submit idea. Please try again.');
+      setTimeout(() => setSyncStatus(''), 3000);
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  // Handle sync status updates
+  useEffect(() => {
+    // Listen for sync status changes
+    const handleSyncStatus = (event: CustomEvent) => {
+      const { status, message, success } = event.detail;
+      
+      if (status === 'started') {
+        setSyncStatus(message || 'Syncing...');
+      } else if (status === 'completed') {
+        setSyncStatus(success ? 'Sync completed!' : message || 'Sync failed');
+        
+        // Auto-clear status after delay
+        setTimeout(() => setSyncStatus(''), success ? 2000 : 5000);
+      }
+    };
+
+    // Listen for project updates
+    const handleProjectUpdate = () => {
+      // Project was updated, show notification
+      setSyncStatus('Project updated successfully!');
+      setTimeout(() => setSyncStatus(''), 2000);
+    };
+
+    // Add event listeners
+    window.addEventListener('sync-status', handleSyncStatus as EventListener);
+    window.addEventListener('project-doc-updated', handleProjectUpdate as EventListener);
+
+    // Cleanup
+    return () => {
+      window.removeEventListener('sync-status', handleSyncStatus as EventListener);
+      window.removeEventListener('project-doc-updated', handleProjectUpdate as EventListener);
+    };
+  }, []);
 
   const getStatusIcon = (status: SubmittedIdea['status']) => {
     switch (status) {
@@ -152,6 +155,13 @@ export const IdeaInbox: React.FC = () => {
             <p className="text-neutral-400 text-sm">Submit ideas and let AI organize them into your project</p>
           </div>
         </div>
+        
+        {/* Sync Status */}
+        {syncStatus && (
+          <div className="bg-blue-100 border-l-4 border-blue-500 p-3 mb-4">
+            <span className="text-sm text-blue-700">{syncStatus}</span>
+          </div>
+        )}
         
         {/* Idea Submission Form */}
         <div className="bg-neutral-800 rounded-lg p-6 mb-6">

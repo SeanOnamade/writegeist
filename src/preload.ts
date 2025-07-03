@@ -8,9 +8,56 @@ let globalSaveHandler: (() => void) | null = null;
 
 // Listen for database updates from main process and convert to project-doc-updated events
 ipcRenderer.on('db-updated', (event, data) => {
-  console.log('Database updated, refreshing project content...');
-  // Trigger project document refresh
-  window.dispatchEvent(new CustomEvent('project-doc-updated', { detail: data }));
+  console.log('Database updated, triggering project refresh:', data);
+  
+  // Convert to project-doc-updated event for consistency
+  window.dispatchEvent(new CustomEvent('project-doc-updated', {
+    detail: { ...data, source: 'database-sync' }
+  }));
+  
+  // Force immediate refresh if requested
+  if (data.forceRefresh) {
+    console.log('Force refresh requested - reloading project content');
+    window.dispatchEvent(new CustomEvent('force-refresh-project', {
+      detail: data
+    }));
+  }
+});
+
+// Listen for database connection management events
+ipcRenderer.on('close-db-connections', () => {
+  console.log('Received request to close database connections');
+  // Trigger event to close any active database connections
+  window.dispatchEvent(new CustomEvent('close-db-connections'));
+});
+
+ipcRenderer.on('reopen-db-connections', () => {
+  console.log('Received request to reopen database connections');
+  // Trigger event to reopen database connections
+  window.dispatchEvent(new CustomEvent('reopen-db-connections'));
+});
+
+// Sync status events for loading states
+ipcRenderer.on('sync-started', (event, data) => {
+  console.log('Sync started:', data);
+  window.dispatchEvent(new CustomEvent('sync-status', {
+    detail: { status: 'started', ...data }
+  }));
+});
+
+ipcRenderer.on('sync-completed', (event, data) => {
+  console.log('Sync completed:', data);
+  window.dispatchEvent(new CustomEvent('sync-status', {
+    detail: { status: 'completed', ...data }
+  }));
+  
+  // Force refresh if needed
+  if (data.forceRefresh) {
+    console.log('Forcing project refresh after sync');
+    window.dispatchEvent(new CustomEvent('force-refresh-project', {
+      detail: data
+    }));
+  }
 });
 
 // Global keyboard handler for Ctrl/Cmd+S
