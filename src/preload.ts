@@ -6,6 +6,13 @@ import { contextBridge, ipcRenderer } from 'electron';
 // Global save manager for keyboard shortcuts
 let globalSaveHandler: (() => void) | null = null;
 
+// Listen for database updates from main process and convert to project-doc-updated events
+ipcRenderer.on('db-updated', (event, data) => {
+  console.log('Database updated, refreshing project content...');
+  // Trigger project document refresh
+  window.dispatchEvent(new CustomEvent('project-doc-updated', { detail: data }));
+});
+
 // Global keyboard handler for Ctrl/Cmd+S
 window.addEventListener('keydown', (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key === 's') {

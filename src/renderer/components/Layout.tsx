@@ -39,25 +39,35 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       });
       window.dispatchEvent(saveEvent);
       
-      // Fallback timeout to prevent hanging
-      setTimeout(resolve, 2000);
+      // Much shorter timeout to prevent hanging (500ms instead of 2000ms)
+      setTimeout(resolve, 500);
     });
   };
 
-  // Enhanced navigation function with auto-save
+  // Enhanced navigation function with auto-save - made more responsive
   const navigateWithSave = async (path: string) => {
     if (isNavigatingRef.current) return;
     
     try {
       isNavigatingRef.current = true;
-      await triggerGlobalSave();
+      
+      // Start save process but don't wait too long
+      const savePromise = triggerGlobalSave();
+      const timeoutPromise = new Promise<void>((resolve) => setTimeout(resolve, 300));
+      
+      // Race between save and timeout - navigate quickly
+      await Promise.race([savePromise, timeoutPromise]);
+      
       navigate(path);
     } catch (error) {
       console.error('Save before navigation failed:', error);
       // Navigate anyway to prevent user being stuck
       navigate(path);
     } finally {
-      isNavigatingRef.current = false;
+      // Reset the flag after a short delay to prevent rapid clicking
+      setTimeout(() => {
+        isNavigatingRef.current = false;
+      }, 100);
     }
   };
 

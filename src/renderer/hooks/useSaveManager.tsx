@@ -256,7 +256,7 @@ export function SaveManagerProvider({
       lastSavedContentRef.current = initialContent;
       currentContentRef.current = initialContent;
     }
-      }, [initialContent]);
+  }, [initialContent]);
 
   const saveManager: SaveManager = {
     ...saveState,

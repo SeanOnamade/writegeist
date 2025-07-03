@@ -129,6 +129,9 @@ def accept_patch(patch: Patch):
         # Save the updated markdown back to the database
         save_markdown_to_database(updated_markdown)
         
+        # Update the last modified timestamp for webhook notifications
+        update_last_modified()
+        
         # Also write to temporary file for debugging
         data_dir = Path(__file__).parent / "data"
         data_dir.mkdir(exist_ok=True)
@@ -139,7 +142,7 @@ def accept_patch(patch: Patch):
         )
         
         # Log the received patch
-        print(f"Applied n8n patch for section '{patch.section}': {len(patch.replace)} characters")
+        print(f"Appended n8n patch to section '{patch.section}': {len(patch.replace)} characters")
         
         return {"status": "applied", "section": patch.section, "file": str(outfile)}
     except Exception as e:
@@ -147,6 +150,59 @@ def accept_patch(patch: Patch):
             status_code=500, 
             detail={"error": f"Failed to process patch: {str(e)}"}
         )
+
+
+@app.get("/download-db")
+def download_database():
+    """
+    Simple endpoint to download the database file for syncing.
+    This allows local apps to sync with the VM database.
+    """
+    try:
+        from fastapi.responses import FileResponse
+        
+        # Path to the database file
+        db_path = Path(__file__).parent.parent / "writegeist.db"
+        
+        if not db_path.exists():
+            raise HTTPException(status_code=404, detail="Database file not found")
+        
+        return FileResponse(
+            path=str(db_path),
+            filename="writegeist.db",
+            media_type="application/octet-stream"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={"error": f"Failed to download database: {str(e)}"}
+        )
+
+
+# Simple file to track last update time
+LAST_UPDATE_FILE = Path(__file__).parent / "last_update.txt"
+
+@app.get("/last-updated")
+def get_last_updated():
+    """
+    Get the timestamp of the last database update.
+    Local apps can check this to know when to sync.
+    """
+    try:
+        if LAST_UPDATE_FILE.exists():
+            return {"last_updated": LAST_UPDATE_FILE.read_text().strip()}
+        else:
+            return {"last_updated": "0"}
+    except Exception as e:
+        return {"last_updated": "0"}
+
+def update_last_modified():
+    """Update the last modified timestamp"""
+    try:
+        import time
+        LAST_UPDATE_FILE.write_text(str(int(time.time())))
+    except Exception:
+        pass
 
 
 # Helper functions
@@ -266,7 +322,7 @@ def extract_section(markdown: str, section_name: str) -> str:
 
 
 def apply_patch_to_section(markdown: str, section_name: str, new_content: str) -> str:
-    """Replace the content of a specific section in the markdown"""
+    """Intelligently append new content to a specific section, avoiding duplicates"""
     lines = markdown.split('\n')
     section_header_index = None
     section_start = 0
@@ -294,11 +350,47 @@ def apply_patch_to_section(markdown: str, section_name: str, new_content: str) -
             section_end = i
             break
     
-    # Replace the section content
-    new_lines = lines[:section_start]
+    # Get existing section content
+    existing_content = '\n'.join(lines[section_start:section_end]).strip()
     
-    # Add the new content
-    if new_content.strip():
+    # Extract the core content to check for duplicates
+    new_content_clean = new_content.strip()
+    
+    # Check if the new content already exists in the section (exact match)
+    if new_content_clean in existing_content:
+        print(f"Content already exists in {section_name}, skipping duplicate")
+        return markdown
+    
+    # For bullet points, do more thorough duplicate checking
+    if new_content_clean.startswith('* '):
+        # Extract the main part (everything after the bullet)
+        new_item = new_content_clean[2:].strip()
+        
+        # Check if this item already exists (multiple ways)
+        for line in lines[section_start:section_end]:
+            if line.strip().startswith('* '):
+                existing_item = line.strip()[2:].strip()
+                
+                # Check exact match
+                if existing_item.lower() == new_item.lower():
+                    print(f"Exact duplicate '{new_item}' found in {section_name}, skipping")
+                    return markdown
+                
+                # Check name match (before parentheses or dashes)
+                new_name = new_item.split('(')[0].split('—')[0].strip()
+                existing_name = existing_item.split('(')[0].split('—')[0].strip()
+                
+                if new_name.lower() == existing_name.lower():
+                    print(f"Character name '{new_name}' already exists in {section_name}, skipping")
+                    return markdown
+    
+    # Add the new content to the end of the section
+    new_lines = lines[:section_end]  # Keep everything up to the end of this section
+    
+    if new_content_clean:
+        # Add a blank line if the section isn't empty
+        if section_end > section_start and lines[section_end - 1].strip():
+            new_lines.append('')
         new_lines.extend(new_content.split('\n'))
     
     # Add remaining lines after the section

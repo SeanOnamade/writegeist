@@ -7,7 +7,7 @@ interface SubmittedIdea {
   id: string;
   content: string;
   timestamp: Date;
-  status: 'submitting' | 'processing' | 'syncing' | 'completed' | 'error';
+  status: 'submitting' | 'processing' | 'completed' | 'error';
 }
 
 export const IdeaInbox: React.FC = () => {
@@ -52,33 +52,24 @@ export const IdeaInbox: React.FC = () => {
           )
         );
 
-        // Simulate processing time, then sync database and mark as completed
+        // Simulate processing time, then mark as completed
         setTimeout(async () => {
           try {
-            // First mark as syncing
+            // Mark as processing while we wait for completion
             setSubmittedIdeas(prev => 
               prev.map(idea => 
                 idea.id === newIdea.id 
-                  ? { ...idea, status: 'syncing' }
+                  ? { ...idea, status: 'processing' }
                   : idea
               )
             );
 
-            // Then sync the database from VM to get the processed idea
-            console.log('Syncing database from VM to get processed idea...');
+            // n8n now updates the database directly through the API
+            // No need to sync from VM anymore - just mark as completed
+            console.log('Idea processed by n8n and updated in database directly');
             
-            // Add timeout to prevent hanging
-            const syncPromise = (window.api as any).syncFromVM();
-            const timeoutPromise = new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('Sync timeout')), 30000)
-            );
-            
-            const syncResult = await Promise.race([syncPromise, timeoutPromise]);
-            
-            if (syncResult.success) {
-              console.log('Database synced successfully! Processed idea should now be visible.');
-              
-              // Mark as completed
+            // Mark as completed after a brief delay
+            setTimeout(() => {
               setSubmittedIdeas(prev => 
                 prev.map(idea => 
                   idea.id === newIdea.id 
@@ -86,25 +77,12 @@ export const IdeaInbox: React.FC = () => {
                     : idea
                 )
               );
-              
-              // Notify other components of database update
-              window.dispatchEvent(new CustomEvent('database-updated'));
-            } else {
-              console.error('Database sync failed:', syncResult.error);
-              
-              // Mark as error if sync failed
-              setSubmittedIdeas(prev => 
-                prev.map(idea => 
-                  idea.id === newIdea.id 
-                    ? { ...idea, status: 'error' }
-                    : idea
-                )
-              );
-            }
-          } catch (error) {
-            console.error('Error during post-processing sync:', error);
+            }, 1000);
             
-            // Mark as error if sync crashed
+          } catch (error) {
+            console.error('Error during post-processing:', error);
+            
+            // Mark as error if something went wrong
             setSubmittedIdeas(prev => 
               prev.map(idea => 
                 idea.id === newIdea.id 
@@ -138,7 +116,6 @@ export const IdeaInbox: React.FC = () => {
     switch (status) {
       case 'submitting': return <Send className="h-4 w-4" />;
       case 'processing': return <Zap className="h-4 w-4 animate-pulse" />;
-      case 'syncing': return <Clock className="h-4 w-4 animate-spin" />;
       case 'completed': return <CheckCircle className="h-4 w-4" />;
       case 'error': return <XCircle className="h-4 w-4" />;
       default: return <Lightbulb className="h-4 w-4" />;
@@ -149,7 +126,6 @@ export const IdeaInbox: React.FC = () => {
     switch (status) {
       case 'submitting': return 'Submitting to AI...';
       case 'processing': return 'AI is organizing your idea...';
-      case 'syncing': return 'Updating your project...';
       case 'completed': return 'Added to your project!';
       case 'error': return 'Failed to submit';
       default: return 'Unknown';
@@ -160,7 +136,6 @@ export const IdeaInbox: React.FC = () => {
     switch (status) {
       case 'submitting': return 'text-blue-400';
       case 'processing': return 'text-yellow-400';
-      case 'syncing': return 'text-purple-400';
       case 'completed': return 'text-green-400';
       case 'error': return 'text-red-400';
       default: return 'text-neutral-400';

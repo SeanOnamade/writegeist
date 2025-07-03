@@ -26,42 +26,64 @@ export default function NovelEditor({ initialMarkdown, onChange }: NovelEditorPr
     return plainText.split(/\s+/).filter(word => word.length > 0).length;
   };
 
-  // Convert markdown to HTML for initial content
+  // Convert markdown to HTML - simple and reliable
   const markdownToHtml = (markdown: string): string => {
     if (!markdown) return '<p>Start writing... (Click ? for formatting help)</p>';
-    let html = markdown
-      .replace(/^### (.*$)/gim, '<h3>$1</h3>')  
-      .replace(/^## (.*$)/gim, '<h2>$1</h2>')
-      .replace(/^# (.*$)/gim, '<h1>$1</h1>')
-      .replace(/\*\*(.*?)\*\*/gim, '<strong>$1</strong>')
-      .replace(/\*(.*?)\*/gim, '<em>$1</em>')
-      .replace(/^> (.*$)/gim, '<blockquote>$1</blockquote>')
-      .replace(/^---$/gim, '<hr>')
-      .replace(/^[\*\-] (.*$)/gim, '<ul><li>$1</li></ul>')  // Handle both * and - bullets
-      .replace(/^\d+\. (.*$)/gim, '<ol><li>$1</li></ol>')
-      .split('\n\n')
-      .map(p => p.trim() ? (p.startsWith('<') ? p : `<p>${p}</p>`) : '')
-      .join('');
-    return html || '<p>Start writing... (Click ? for formatting help)</p>';
+    
+    // ULTRA SIMPLE conversion - just preserve structure
+    const lines = markdown.split('\n');
+    const htmlLines = lines.map(line => {
+      const trimmed = line.trim();
+      if (!trimmed) return '<br>';
+      
+      // Handle headings
+      if (trimmed.startsWith('### ')) return `<h3>${trimmed.slice(4)}</h3>`;
+      if (trimmed.startsWith('## ')) return `<h2>${trimmed.slice(3)}</h2>`;
+      if (trimmed.startsWith('# ')) return `<h1>${trimmed.slice(2)}</h1>`;
+      
+      // Handle lists
+      if (trimmed.startsWith('* ')) return `<li>${trimmed.slice(2)}</li>`;
+      if (trimmed.startsWith('- ')) return `<li>${trimmed.slice(2)}</li>`;
+      
+      // Handle quotes
+      if (trimmed.startsWith('> ')) return `<blockquote>${trimmed.slice(2)}</blockquote>`;
+      
+      // Handle horizontal rules
+      if (trimmed === '---') return '<hr>';
+      
+      // Default paragraph
+      return `<p>${trimmed}</p>`;
+    });
+    
+    return htmlLines.join('') || '<p>Start writing... (Click ? for formatting help)</p>';
   };
 
-  // Convert HTML back to markdown with consistent asterisk bullets
+  // Convert HTML back to markdown - ULTRA SIMPLE to avoid corruption
   const htmlToMarkdown = (html: string): string => {
     if (!html) return '';
-    return html
-      .replace(/<h1[^>]*>(.*?)<\/h1>/gim, '# $1\n\n')
-      .replace(/<h2[^>]*>(.*?)<\/h2>/gim, '## $1\n\n')
-      .replace(/<h3[^>]*>(.*?)<\/h3>/gim, '### $1\n\n')
-      .replace(/<strong[^>]*>(.*?)<\/strong>/gim, '**$1**')
-      .replace(/<em[^>]*>(.*?)<\/em>/gim, '*$1*')
-      .replace(/<blockquote[^>]*>(.*?)<\/blockquote>/gim, '> $1\n\n')
-      .replace(/<hr[^>]*>/gim, '---\n\n')
-      .replace(/<ul[^>]*><li[^>]*>(.*?)<\/li><\/ul>/gim, '* $1\n')  // Use asterisk bullets
-      .replace(/<ol[^>]*><li[^>]*>(.*?)<\/li><\/ol>/gim, '1. $1\n')
-      .replace(/<p[^>]*>(.*?)<\/p>/gim, '$1\n\n')
-      .replace(/<br\s*\/?>/gim, '\n')
-      .replace(/&nbsp;/gim, ' ')
+    
+    // ULTRA SIMPLE approach - just extract text and preserve basic structure
+    let result = html
+      // Handle basic formatting
+      .replace(/<strong[^>]*>(.*?)<\/strong>/gi, '**$1**')
+      .replace(/<em[^>]*>(.*?)<\/em>/gi, '*$1*')
+      .replace(/<h1[^>]*>(.*?)<\/h1>/gi, '\n# $1\n')
+      .replace(/<h2[^>]*>(.*?)<\/h2>/gi, '\n## $1\n') 
+      .replace(/<h3[^>]*>(.*?)<\/h3>/gi, '\n### $1\n')
+      .replace(/<blockquote[^>]*>(.*?)<\/blockquote>/gi, '\n> $1\n')
+      .replace(/<hr[^>]*>/gi, '\n---\n')
+      .replace(/<li[^>]*>(.*?)<\/li>/gi, '\n* $1')
+      .replace(/<p[^>]*>(.*?)<\/p>/gi, '\n$1\n')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<[^>]*>/g, ''); // Remove all other HTML tags
+    
+    // Clean up excessive whitespace
+    result = result
+      .replace(/\n\s*\n\s*\n+/g, '\n\n') // Multiple blank lines to double
+      .replace(/^\s+|\s+$/g, '') // Trim
       .trim();
+    
+    return result || '';
   };
 
   const editor = useEditor({
@@ -71,13 +93,31 @@ export default function NovelEditor({ initialMarkdown, onChange }: NovelEditorPr
         heading: {
           levels: [1, 2, 3],
         },
+        // Fix list behavior
+        bulletList: {},
+        orderedList: {},
+        listItem: {},
       }),
       Typography,
     ],
     content: markdownToHtml(initialMarkdown || ''),
     editorProps: {
       attributes: {
-        class: 'prose prose-invert max-w-3xl mx-auto focus:outline-none min-h-[500px] p-4',
+        class: 'writegeist-editor prose prose-invert max-w-3xl mx-auto focus:outline-none min-h-[500px] p-4',
+      },
+      // Fix backspace behavior with lists
+      handleKeyDown: (view, event) => {
+        if (event.key === 'Backspace') {
+          const { state } = view;
+          const { selection } = state;
+          const { $from } = selection;
+          
+          // If we're at the start of a list item, lift it out instead of creating bullet
+          if ($from.parent.type.name === 'listItem' && $from.parentOffset === 0) {
+            return editor?.chain().liftListItem('listItem').run() || false;
+          }
+        }
+        return false;
       },
     },
     onUpdate: ({ editor }) => {
@@ -102,12 +142,17 @@ export default function NovelEditor({ initialMarkdown, onChange }: NovelEditorPr
   // Update content when initialMarkdown changes (for external updates only)
   useEffect(() => {
     if (editor && initialMarkdown && !isInternalUpdate.current) {
-      const html = markdownToHtml(initialMarkdown);
       const currentHtml = editor.getHTML();
       const currentMarkdown = htmlToMarkdown(currentHtml);
       
+      // Normalize both strings for comparison (remove extra whitespace)
+      const normalizeText = (text: string) => text.replace(/\s+/g, ' ').trim();
+      const normalizedInitial = normalizeText(initialMarkdown);
+      const normalizedCurrent = normalizeText(currentMarkdown);
+      
       // Only update if the content is actually different
-      if (initialMarkdown !== currentMarkdown) {
+      if (normalizedInitial !== normalizedCurrent) {
+        const html = markdownToHtml(initialMarkdown);
         editor.commands.setContent(html, false);
       }
     }
@@ -140,6 +185,33 @@ export default function NovelEditor({ initialMarkdown, onChange }: NovelEditorPr
 
   return (
     <div className="relative">
+      {/* Custom styles to fix formatting issues */}
+      <style dangerouslySetInnerHTML={{
+        __html: `
+          .writegeist-editor h1,
+          .writegeist-editor h2,
+          .writegeist-editor h3 {
+            margin-left: 0 !important;
+            padding-left: 0 !important;
+            text-indent: 0 !important;
+            text-align: left !important;
+          }
+          
+          .writegeist-editor p {
+            margin-left: 0 !important;
+            padding-left: 0 !important;
+            text-indent: 0 !important;
+            text-align: left !important;
+          }
+          
+          .writegeist-editor blockquote {
+            margin-left: 0 !important;
+            padding-left: 1rem !important;
+            text-align: left !important;
+          }
+        `
+      }} />
+      
       {/* Bubble Menu for formatting selected text */}
       {editor && (
         <BubbleMenu

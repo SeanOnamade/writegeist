@@ -145,6 +145,12 @@ const createWindow = (): void => {
   // Start database monitoring
   const dbPath = path.join(process.cwd(), 'writegeist.db');
   startDbMonitoring(dbPath, mainWindow);
+  
+  // Set webhook reference for database sync events
+  webhookMainWindow = mainWindow;
+  
+  // Start webhook listener for external notifications
+  startWebhookListener(mainWindow);
 };
 
 // Database change monitoring
@@ -189,6 +195,105 @@ const startDbMonitoring = (dbPath: string, mainWindow: BrowserWindow) => {
 };
 
 // Webhook server for n8n to trigger database syncing
+let webhookMainWindow: BrowserWindow | null = null;
+
+// Webhook listener for external notifications from n8n
+const startWebhookListener = (mainWindow: BrowserWindow) => {
+  let lastNotificationCheck = Date.now();
+  
+  const syncFromVM = async () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    
+    try {
+      console.log('Syncing from VM after webhook notification...');
+      
+      // Download and sync database from VM
+      const https = require('https');
+      const vmDbUrl = 'https://python-fastapi-u50080.vm.elestio.app/download-db';
+      const tempDbPath = path.join(process.cwd(), 'writegeist_temp.db');
+      const finalDbPath = path.join(process.cwd(), 'writegeist.db');
+      
+      const downloadDatabase = () => {
+        return new Promise((resolve, reject) => {
+          const fs = require('fs');
+          const file = fs.createWriteStream(tempDbPath);
+          https.get(vmDbUrl, (response) => {
+            if (response.statusCode === 200) {
+              response.pipe(file);
+              file.on('finish', () => {
+                file.close();
+                resolve(true);
+              });
+            } else {
+              reject(new Error(`Failed to download: ${response.statusCode}`));
+            }
+          }).on('error', reject);
+        });
+      };
+      
+      await downloadDatabase();
+      
+      // Replace the database file
+      const fs = require('fs');
+      if (fs.existsSync(finalDbPath)) {
+        fs.unlinkSync(finalDbPath);
+      }
+      fs.renameSync(tempDbPath, finalDbPath);
+      
+      // Trigger UI refresh
+      mainWindow.webContents.send('db-updated', {
+        table: 'project_pages',
+        updatedAt: new Date().toISOString()
+      });
+      
+      console.log('Webhook-triggered sync completed successfully');
+    } catch (error) {
+      console.warn('Webhook sync failed:', error);
+    }
+  };
+  
+  const checkForWebhookNotifications = async () => {
+    try {
+      // Check VM's last-updated timestamp
+      const https = require('https');
+      const lastUpdatedUrl = 'https://python-fastapi-u50080.vm.elestio.app/last-updated';
+      
+      https.get(lastUpdatedUrl, (response) => {
+        if (response.statusCode === 200) {
+          let data = '';
+          response.on('data', chunk => data += chunk);
+          response.on('end', () => {
+            try {
+              const result = JSON.parse(data);
+              const vmLastUpdated = parseInt(result.last_updated);
+              
+              // If VM was updated after our last check, sync immediately
+              if (vmLastUpdated > (lastNotificationCheck / 1000)) {
+                console.log('VM database was updated, syncing...');
+                lastNotificationCheck = Date.now();
+                syncFromVM();
+              }
+            } catch (error) {
+              // Ignore parsing errors
+            }
+          });
+        }
+      }).on('error', () => {
+        // Ignore connection errors
+      });
+      
+    } catch (error) {
+      // Ignore errors - webhook system is optional
+    }
+  };
+  
+  // Check for webhook notifications every 10 seconds (much faster than 30s polling)
+  setInterval(checkForWebhookNotifications, 10000);
+  
+  // Initial sync after 5 seconds
+  setTimeout(syncFromVM, 5000);
+};
+
 const startWebhookServer = () => {
   const PORT = 3001; // Use a different port from the main API
   
@@ -208,29 +313,84 @@ const startWebhookServer = () => {
     
     if (req.method === 'POST' && url.pathname === '/sync-database') {
       try {
-        console.log('Received database sync webhook from n8n');
+        console.log('Received database sync webhook from n8n - downloading database from VM');
         
-        // Trigger the database sync from VM
-        const { exec } = await import('child_process');
-        const { promisify } = await import('util');
-        const execAsync = promisify(exec);
+        // Download the database from VM using HTTP
+        const https = require('https');
+        const fs = require('fs');
         
-        // Download updated database from VM
-        await execAsync('scp root@python-fastapi-u50080.vm.elestio.app:/writegeist/writegeist.db ./writegeist_temp.db', {
-          cwd: process.cwd()
-        });
+        const vmDbUrl = 'https://python-fastapi-u50080.vm.elestio.app/download-db';
+        const tempDbPath = path.join(process.cwd(), 'writegeist_temp.db');
+        const finalDbPath = path.join(process.cwd(), 'writegeist.db');
         
-        // Replace the current database
-        await execAsync('powershell -Command "Move-Item writegeist_temp.db writegeist.db -Force"', {
-          cwd: process.cwd()
-        });
+        const downloadDatabase = () => {
+          return new Promise((resolve, reject) => {
+            const file = fs.createWriteStream(tempDbPath);
+            https.get(vmDbUrl, (response) => {
+              if (response.statusCode === 200) {
+                response.pipe(file);
+                file.on('finish', () => {
+                  file.close();
+                  resolve(true);
+                });
+              } else {
+                reject(new Error(`Failed to download database: ${response.statusCode}`));
+              }
+            }).on('error', reject);
+          });
+        };
         
-        console.log('Database sync completed via webhook');
+        // Download and replace the database
+        await downloadDatabase();
+        
+        // Replace the current database file
+        if (fs.existsSync(finalDbPath)) {
+          fs.unlinkSync(finalDbPath);
+        }
+        fs.renameSync(tempDbPath, finalDbPath);
+        
+        console.log('Database sync from VM completed successfully');
+        
+        // Trigger refresh after successful sync
+        setTimeout(() => {
+          console.log('Triggering refresh after database sync');
+          if (webhookMainWindow) {
+            webhookMainWindow.webContents.send('db-updated', {
+              table: 'project_pages',
+              updatedAt: new Date().toISOString()
+            });
+          }
+        }, 500);
         
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true, message: 'Database synced successfully' }));
+        res.end(JSON.stringify({ 
+          success: true, 
+          message: 'Database synced from VM successfully'
+        }));
       } catch (error) {
         console.error('Webhook database sync failed:', error);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: error.message }));
+      }
+    } else if (req.method === 'POST' && url.pathname === '/idea-added') {
+      try {
+        console.log('Received idea-added notification from n8n');
+        
+        // Just trigger a forced refresh of the project document
+        setTimeout(() => {
+          console.log('Triggering refresh after idea added');
+          if (webhookMainWindow) {
+            webhookMainWindow.webContents.send('db-updated', {
+              table: 'project_pages',
+              updatedAt: new Date().toISOString()
+            });
+          }
+        }, 300);
+        
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, message: 'Idea added notification received' }));
+      } catch (error) {
+        console.error('Idea added notification failed:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: false, error: error.message }));
       }
@@ -566,9 +726,7 @@ app.on('ready', () => {
       }
     });
 
-    // Start database monitoring after initialization
-    const dbPath = path.join(process.cwd(), 'writegeist.db');
-    // We'll start monitoring once the window is created
+    // Database monitoring will be started after window creation
   }).catch(console.error);
   
   createWindow();

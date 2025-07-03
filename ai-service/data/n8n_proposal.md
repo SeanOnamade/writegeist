@@ -1,3 +1,3 @@
 ### Characters / (root)
 
-* Max (character who loves to read)
+* TestLocal (api-tester) — verifies local API works
