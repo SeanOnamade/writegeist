@@ -25,7 +25,6 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [projectSections, setProjectSections] = useState<Array<{label: string, slug: string}>>([]);
-  const isNavigatingRef = useRef(false);
 
 
   const isActive = (path: string) => location.pathname === path;
@@ -46,29 +45,15 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   // Enhanced navigation function with auto-save - made more responsive
   const navigateWithSave = async (path: string) => {
-    if (isNavigatingRef.current) return;
+    // Don't block if we're already on the target path
+    if (location.pathname === path) return;
     
-    try {
-      isNavigatingRef.current = true;
-      
-      // Start save process but don't wait too long
-      const savePromise = triggerGlobalSave();
-      const timeoutPromise = new Promise<void>((resolve) => setTimeout(resolve, 300));
-      
-      // Race between save and timeout - navigate quickly
-      await Promise.race([savePromise, timeoutPromise]);
-      
-      navigate(path);
-    } catch (error) {
-      console.error('Save before navigation failed:', error);
-      // Navigate anyway to prevent user being stuck
-      navigate(path);
-    } finally {
-      // Reset the flag after a short delay to prevent rapid clicking
-      setTimeout(() => {
-        isNavigatingRef.current = false;
-      }, 100);
-    }
+    // Don't block navigation while saving - just trigger save and navigate
+    // The save will happen asynchronously
+    triggerGlobalSave().catch(console.error);
+    
+    // Navigate immediately for better UX
+    navigate(path);
   };
 
   // Default sections - will be overridden by dynamic parsing
@@ -143,8 +128,8 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
     }
   };
 
-  const handleProjectSectionClick = async (slug: string) => {
-    await navigateWithSave('/project');
+  const handleProjectSectionClick = (slug: string) => {
+    navigateWithSave('/project');
     // Small delay to ensure navigation completes before scrolling
     setTimeout(() => {
       const element = document.getElementById(slug);
