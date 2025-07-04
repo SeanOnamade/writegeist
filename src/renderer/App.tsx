@@ -2,7 +2,7 @@ import React from 'react';
 import { HashRouter as Router, Routes, Route, useNavigate } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { HomeScreen } from './features/HomeScreen';
-import { ProjectPage } from './features/ProjectPage';
+import ProjectPage from './features/ProjectPage';
 import { ChapterIngest } from './features/ChapterIngest';
 import { FullBook } from './features/FullBook';
 import { IdeaInbox } from './features/IdeaInbox';

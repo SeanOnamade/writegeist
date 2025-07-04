@@ -3,8 +3,48 @@ import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
 
 const dbFile = `${process.cwd()}/writegeist.db`;
-const database = new Database(dbFile);
-export const db = drizzle(database);
+let database = new Database(dbFile);
+export let db = drizzle(database);
+
+// Callback to notify when database is reopened
+let onDatabaseReopenCallback: (() => void) | null = null;
+
+export const setDatabaseReopenCallback = (callback: () => void) => {
+  onDatabaseReopenCallback = callback;
+};
+
+// Database connection management functions
+export const closeDatabaseConnection = () => {
+  try {
+    if (database && database.open) {
+      database.close();
+      console.log('✅ Database connection closed');
+      return true;
+    }
+  } catch (error) {
+    console.error('❌ Error closing database:', error);
+    return false;
+  }
+  return false;
+};
+
+export const reopenDatabaseConnection = () => {
+  try {
+    database = new Database(dbFile);
+    db = drizzle(database);
+    console.log('✅ Database connection reopened');
+    
+    // Notify that database has been reopened
+    if (onDatabaseReopenCallback) {
+      onDatabaseReopenCallback();
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('❌ Error reopening database:', error);
+    return false;
+  }
+};
 
 export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
