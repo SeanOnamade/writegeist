@@ -131,4 +131,7 @@ contextBridge.exposeInMainWorld('api', {
   syncFromVM: async () => {
     return await ipcRenderer.invoke('sync-from-vm');
   },
+  getLogoPath: async () => {
+    return await ipcRenderer.invoke('get-logo-path');
+  },
 });

@@ -21,6 +21,7 @@ declare global {
       unregisterGlobalSaveHandler: () => void;
       syncToVM: () => Promise<any>;
       syncFromVM: () => Promise<{ success: boolean; message?: string; error?: string }>;
+      getLogoPath: () => Promise<string | null>;
     };
   }
 }

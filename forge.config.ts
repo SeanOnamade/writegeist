@@ -14,6 +14,7 @@ import { rendererConfig } from './webpack.renderer.config';
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
+    icon: './resources/logo', // no file extension required - Forge will add .ico/.icns automatically
     extraResource: [
       './resources'
     ],

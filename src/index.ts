@@ -118,6 +118,7 @@ const createWindow = (): void => {
     width: 1200,
     minHeight: 600,
     minWidth: 800,
+    icon: path.join(__dirname, '../../resources/logo.png'), // Set window icon
     webPreferences: {
       preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
       nodeIntegration: false,
@@ -1062,6 +1063,26 @@ app.on('ready', () => {
       } catch (error) {
         console.error('VM database sync failed:', error);
         return { success: false, error: error.message };
+      }
+    });
+
+    // Get logo path
+    ipcMain.handle('get-logo-path', async () => {
+      try {
+        const logoPath = app.isPackaged
+          ? path.join(process.resourcesPath, 'logo.png')
+          : path.join(process.cwd(), 'resources', 'logo.png');
+        
+        // Check if logo exists
+        if (fs.existsSync(logoPath)) {
+          return `file://${logoPath}`;
+        } else {
+          console.warn('Logo file not found at:', logoPath);
+          return null;
+        }
+      } catch (error) {
+        console.error('Error getting logo path:', error);
+        return null;
       }
     });
 

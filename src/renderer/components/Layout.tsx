@@ -7,7 +7,6 @@ import {
   Plus, 
   Lightbulb, 
   Settings, 
-  FileText,
   MapPin,
   Users,
   BookOpen,
@@ -149,7 +148,18 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
             onClick={handleLogoClick}
             className="flex items-center gap-2 text-xl font-bold text-neutral-100 hover:text-white transition-all duration-200 hover:scale-105"
           >
-            <FileText className="h-6 w-6" />
+            <img 
+              src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==" 
+              alt="Writegeist Logo" 
+              className="h-6 w-6 object-contain hidden"
+              onError={(e) => {
+                console.error('Logo failed to load, using fallback');
+                e.currentTarget.style.display = 'none';
+              }}
+            />
+            <div className="h-6 w-6 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
+              <span className="text-xs text-white font-bold">W</span>
+            </div>
             Writegeist
           </button>
         </div>
